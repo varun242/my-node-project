@@ -20,6 +20,10 @@ export interface AlertThreshold {
   maxValue?: number;
 }
 
+export interface Alert extends AlertThreshold {
+  actualValue: number;
+}
+
 /**
  * PART 1: BUG FIX
  * 
@@ -29,7 +33,7 @@ export interface AlertThreshold {
  */
 export class PatientMonitor {
   private patients: Map<string, PatientRecord> = new Map();
-  private alertThresholds: Map<string, AlertThreshold> = new Map([
+    private alertThresholds: Map<string, AlertThreshold> = new Map([
     ['heart_rate', { type: 'heart_rate', minValue: 60, maxValue: 100 }],
     ['blood_pressure', { type: 'blood_pressure', minValue: 90, maxValue: 140 }],
     ['temperature', { type: 'temperature', minValue: 36.5, maxValue: 37.5 }],
@@ -64,12 +68,62 @@ export class PatientMonitor {
       if (vital.value < threshold?.minValue!) {
         abnormalCount++;
       }
+      if (vital.value > threshold?.maxValue!) {
+        abnormalCount++;
+      }
       // BUG: maxValue is never checked
     }
 
     if (abnormalCount === 0) return 'low';
-    if (abnormalCount <= 2) return 'medium';
+    if (abnormalCount === 1) return 'high';
+    if (abnormalCount <= 3) return 'medium';
     return 'high';
+  }
+
+  getPatientsByRiskLevel(level: 'low' | 'medium' | 'high'): PatientRecord[] {
+    return Array.from(this.patients.values()).filter(patient => patient.riskLevel === level);
+  }
+
+  getAverageVitalOverTime(patientId: string, vitalType: Vital['type']): number {
+    const patient: PatientRecord | undefined = this.patients.get(patientId);
+    let vitalAvgOverTime = 0;
+
+    if (!patient) {
+      throw new Error(`Patient ${patientId} not found`);
+    }
+
+    const specificPatientVitals = Array.from(patient.vitals).filter(vital => vital.type === vitalType);
+
+    if (!specificPatientVitals.length) {
+      throw new Error(`For patient: ${patientId} no ${vitalType} vitals found`);
+    }
+
+    specificPatientVitals.forEach(vital => {
+      vitalAvgOverTime += vital.value;
+    });
+
+    return vitalAvgOverTime / specificPatientVitals.length;
+  }
+
+  checkAlertsForPatient(patientId: string): Alert[] {
+    const patientVitals: Vital[] | undefined = this.getPatient(patientId)?.vitals;
+    const alerts: Alert[] = [];
+
+    if (!patientVitals) {
+        return alerts;
+    }
+
+    for (const vital of patientVitals) {
+      const threshold = this.alertThresholds.get(vital.type);
+      if (threshold && (vital.value < threshold.minValue! || vital.value > threshold.maxValue!)) {
+          alerts.push({
+            ...threshold,
+            actualValue: vital.value
+          });
+        }
+    }
+
+    return alerts;
   }
 
   getPatient(patientId: string): PatientRecord | undefined {
